@@ -1,23 +1,20 @@
 /**************************************************************************/
-/*!
-    @file     sinewave.pde
-    @author   Adafruit Industries
-    @license  BSD (see license.txt)
-
-    This example will generate a sine wave with the MCP4725 dac1.
-
-    This is an example sketch for the Adafruit MCP4725 breakout board
-    ----> http://www.adafruit.com/products/935
-
-    Adafruit invests time and resources providing this open source code,
-    please support Adafruit and open-source hardware by purchasing
-    products from Adafruit!
+/* 
+  Tabular sinbe computation is from AdaFruit (sinewave.pde)
+  The rest is mine. 
+    @author   Eric
+    @license  Who cares?
 */
-/**************************************************************************/
+
+
 #include <Wire.h>
 #include <Adafruit_MCP4725.h>
 
 Adafruit_MCP4725 dac1,dac2;
+
+
+//
+#define PI_OVER_4 (3.141516/4.0)
 
 // Set this value to 9, 8, 7, 6 or 5 to adjust the resolution
 #define DAC_RESOLUTION    (9)
@@ -131,42 +128,37 @@ const PROGMEM uint16_t DACLookup_FullSine_8Bit[256] =
   1648, 1697, 1747, 1797, 1847, 1897, 1947, 1997
 };
 
-const PROGMEM uint16_t DACLookup_FullSine_7Bit[128] =
+
+/* 
+  Full range is [0,4095] on the DAC (12 bits)
+  Since we use 8-bit values, we multiply every coordinate by 16. 
+*/
+void plot(int16_t x, int16_t y)
 {
-  2048, 2148, 2248, 2348, 2447, 2545, 2642, 2737,
-  2831, 2923, 3013, 3100, 3185, 3267, 3346, 3423,
-  3495, 3565, 3630, 3692, 3750, 3804, 3853, 3898,
-  3939, 3975, 4007, 4034, 4056, 4073, 4085, 4093,
-  4095, 4093, 4085, 4073, 4056, 4034, 4007, 3975,
-  3939, 3898, 3853, 3804, 3750, 3692, 3630, 3565,
-  3495, 3423, 3346, 3267, 3185, 3100, 3013, 2923,
-  2831, 2737, 2642, 2545, 2447, 2348, 2248, 2148,
-  2048, 1947, 1847, 1747, 1648, 1550, 1453, 1358,
-  1264, 1172, 1082,  995,  910,  828,  749,  672,
-   600,  530,  465,  403,  345,  291,  242,  197,
-   156,  120,   88,   61,   39,   22,   10,    2,
-     0,    2,   10,   22,   39,   61,   88,  120,
-   156,  197,  242,  291,  345,  403,  465,  530,
-   600,  672,  749,  828,  910,  995, 1082, 1172,
-  1264, 1358, 1453, 1550, 1648, 1747, 1847, 1947
-};
-
-
-
- 
-void plot(uint16_t x, uint16_t y)
-{
-  dac1.setVoltage(x<<4, false);
-  dac2.setVoltage(y<<4, false);
+  dac1.setVoltage(x, false);
+  dac2.setVoltage(y, false);
 }
 
+#define len_seg_square 50
+
+void vector_2(float x1, float y1, float x2, float y2)
+{
+  int n = sqrt(((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1)) / (len_seg_square));
+  
+  float dx= ((float)x2-(float)x1) / n;
+  float dy= ((float)y2-(float)y1) / n;
+  
+  for (int i=0; i< n; i++)
+    plot( (float) i*dx+x1, (float) i*dy+y1);
+
+}
 /*  Quadrants
     2  |  1
 -------|-----
     3  |  4
 
 */
-void vector(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
+void vector(int16_t x1, int16_t y1, int16_t x2, int16_t y2)
 {
     // optimized implementation of Bresenham's Algorithm
     // also known as a DDA - digital differential analyzer
@@ -286,22 +278,39 @@ void vector(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
     }
 }
 
-
-void rotate (int16_t ix[], int16_t iy[], int16_t ox[], int16_t oy[], double angle) {
+/*
+ * Rotate a set of points (ix[],iy[]) around (0,0) and place the result in (ox[],oy[]). 
+ */
+void rotate (float ix[], float iy[], float ox[], float oy[], float angle, int n) {
     
     angle *= 3.1416 / 180.0;
     
-    for ( int i = 0; i< 4; i++)
+    for ( int i = 0; i< n; i++)
     {
-      ox[i] = (double) (ix[i]) * cos(angle) + (double)(iy[i]) * sin(angle);
-      oy[i] = - (double)(ix[i]) * sin(angle) + (double) (iy[i]) * cos (angle);
+      ox[i] = (float) (ix[i]) * cos(angle) + (float)(iy[i]) * sin(angle);
+      oy[i] = - (float)(ix[i]) * sin(angle) + (float) (iy[i]) * cos (angle);
     }
     
 }
 
 
+#define LEFTBUT 4
+#define FIREBUT 5
+#define RIGHTBUT 6
+
+
+
+
+/*
+ * 
+ */
 void setup(void) {
   Serial.begin(9600);
+
+  // Setup input pins
+  pinMode(LEFTBUT, INPUT_PULLUP); 
+  pinMode(FIREBUT, INPUT_PULLUP);
+  pinMode(RIGHTBUT, INPUT_PULLUP);
 
   // For Adafruit MCP4725A1 the address is 0x62 (default) or 0x63 (ADDR pin tied to VCC)
   // For MCP4725A0 the address is 0x60 or 0x61
@@ -311,25 +320,155 @@ void setup(void) {
 
 }
 
+// Polygon representing the shape of the ship 
+float orgshipx[]={50,-50,-50, 50,0};
+float orgshipy[]={0,-50, 50, 0, 0};
 
-int16_t orgshipx[]={0,10,-10, 0};
-int16_t orgshipy[]={10,-10, -10, 10};
+// Polygon representing the ship at its actual location
+float shipx[5];
+float shipy[5];
 
-int16_t shipx[]={0,10,-10, 0};
-int16_t shipy[]={10,-10, -10, 10};
 
-double angle = 0.0;
+typedef enum {e_bomb_off, e_bomb_init,e_bomb_move } 
+  bomb_state_e;
 
-// SCreen is [0,256]x[0,256]
+bomb_state_e bomb_state= e_bomb_off;
+
+// Polygon representing the shape of the ship 
+float orgbombx[]={10,10,-10, -10,10};
+float orgbomby[]={10,-10,-10, 10, 10};
+
+// Polygon representing the ship at its actual location
+float bombx[5];
+float bomby[5];
+  
+
+// Screen is [0,255]x[0,255]
 void loop(void) {
     static uint16_t cpt=0;
-    static uint16_t ox=128, oy=128, vx=1, vy=2;
+    static uint8_t firecpt=0, leftcpt=0, rightcpt=0;
+    static float ox=2048.0, oy=2048.0, bx, by;
+    static float vx=0, vy=0, bvx, bvy;
+    static float  speed=0.0;
+    static float angle = 0.0;
+    static float anginc, speedinc;
+    float nx,ny;
+    boolean angle_changed = true, speed_changed = true;
 
-// Draw ship
-for (int i=0; i<3; i++)
-  vector(shipx[i]+ox, shipy[i]+oy, shipx[i+1]+ox, shipy[i+1]+oy);
+  if (digitalRead(FIREBUT) == LOW) {
+    firecpt++;
+    if (firecpt == 10) { 
+      if ( speedinc < 20.0) speedinc += 0.1;
+      firecpt = 0;
+    }
+    speed += speedinc;
+    speed_changed = true;
+  }
+  else
+  {
+    speedinc = 0.5;
+    if (firecpt != 0) {
+      Serial.println("BOMB!");
+        bomb_state = e_bomb_init;
+    }
+    firecpt=0;
+  }
 
-/*
+
+ 
+ if (digitalRead(LEFTBUT) == LOW) {
+    leftcpt++;
+    if (leftcpt == 10) { 
+      if ( anginc < 10.0) anginc += 1.0;
+      leftcpt=0;
+    }
+      angle -= anginc;
+      angle_changed = true;
+  }
+  else {
+    leftcpt=0;
+   
+    if (digitalRead(RIGHTBUT) == LOW) {
+      rightcpt++;
+      if (rightcpt == 10) { 
+        if ( anginc < 10) anginc += 1;
+        rightcpt=0;
+      }
+        angle += anginc;
+        angle_changed = true;
+
+    }
+    else {
+      rightcpt=0;
+      anginc = 1;
+    }
+  }
+
+
+
+   if ( angle_changed) {
+    rotate (orgshipx, orgshipy, shipx, shipy, angle, 5);
+   }
+   
+  // Draw ship
+  for (int i=0; i<4; i++)
+    vector_2(shipx[i]+ox, shipy[i]+oy, shipx[i+1]+ox, shipy[i+1]+oy);
+
+  if ( angle_changed || speed_changed ) {
+    vx = speed* cos(angle* 3.1416 / 180.0);
+    vy = -speed* sin(angle* 3.1416 / 180.0);
+  }
+    nx = ox+vx;
+    ny = oy+vy;
+
+    if ((nx<200.0) || (nx>3900.0) || (ny<200.0) || (ny>3900.0)) speed= 0.0;
+      
+   else {
+    ox = nx;
+    oy = ny;
+    }
+
+
+  
+  switch (bomb_state) {
+    case e_bomb_off:
+      break;
+    case e_bomb_init:
+      rotate (orgbombx, orgbomby, bombx, bomby, angle, 4);
+      bx= shipx[0]+ox;
+      by= shipy[0]+oy;
+      bvx = (speed+10)* cos(angle* 3.1416 / 180.0);
+      bvy = -(speed+10)* sin(angle* 3.1416 / 180.0);
+      bomb_state = e_bomb_move;
+      break;
+    case e_bomb_move:
+      bx += bvx;
+      by += bvy;
+     if ((bx<200.0) || (bx>3900.0) || (by<200.0) || (by>3900.0))
+        bomb_state = e_bomb_off;
+      else
+     if ( (bx-ox)*(bx-ox)+(by-oy)*(by-oy) > 1000000 )
+        bomb_state = e_bomb_off;
+     else
+       // Draw bomb
+        for (int i=0; i<4; i++)
+          vector_2(bombx[i]+bx, bomby[i]+by, bombx[i+1]+bx, bomby[i+1]+by);
+      break;      
+    default:
+      break;
+  }
+
+    
+    cpt++;
+    if ((cpt & 0x1F) == 0) {
+      speed *=0.75;
+        speed_changed = true;
+      }
+  
+ }
+
+
+ /*
 // X in [0,511]
 x1= x1+32;
 x2= (x1+512);
@@ -345,16 +484,3 @@ v2 = (((float)(v2)-2048.0)/4096.0)*s+2048+oy ;
     dac2.setVoltage(v2, false);
 
   */    
-   rotate (orgshipx, orgshipy, shipx, shipy, angle);
-   
- 
-    ox = ox+vx;
-    if ( ox < 20) {vx=-vx; }
-    if (ox > 220) {vx=-vx; }
-    oy=oy+vy;
-    if ( oy< 20) { vy=-vy; }
-    if ( oy > 220) {vy=-vy; }
-
-    angle+=3.0;
-      
- }
