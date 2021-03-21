@@ -139,14 +139,14 @@ void plot(int16_t x, int16_t y)
   dac2.setVoltage(y, false);
 }
 
-#define len_seg_square 50
+#define len_seg_square 40
 
 void vector_2(float x1, float y1, float x2, float y2)
 {
   int n = sqrt(((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1)) / (len_seg_square));
   
-  float dx= ((float)x2-(float)x1) / n;
-  float dy= ((float)y2-(float)y1) / n;
+  float dx= (x2-x1) / n;
+  float dy= (y2-y1) / n;
   
   for (int i=0; i< n; i++)
     plot( (float) i*dx+x1, (float) i*dy+y1);
@@ -293,7 +293,7 @@ void rotate (float ix[], float iy[], float ox[], float oy[], float angle, int n)
     
 }
 
-
+// Button ports
 #define LEFTBUT 4
 #define FIREBUT 5
 #define RIGHTBUT 6
@@ -321,13 +321,17 @@ void setup(void) {
 }
 
 // Polygon representing the shape of the ship 
-float orgshipx[]={50,-50,-50, 50,0};
-float orgshipy[]={0,-50, 50, 0, 0};
+const float orgshipx[]={50,-50,-50, 50};
+const float orgshipy[]={0,-50, 50, 0};
 
 // Polygon representing the ship at its actual location
 float shipx[5];
 float shipy[5];
 
+typedef enum {e_waiting, e_playing, e_end}
+  game_state_t;
+
+game_state_t game_state = e_waiting;
 
 typedef enum {e_bomb_off, e_bomb_init,e_bomb_move } 
   bomb_state_e;
@@ -335,26 +339,97 @@ typedef enum {e_bomb_off, e_bomb_init,e_bomb_move }
 bomb_state_e bomb_state= e_bomb_off;
 
 // Polygon representing the shape of the ship 
-float orgbombx[]={10,10,-10, -10,10};
-float orgbomby[]={10,-10,-10, 10, 10};
+const  float orgbombx[]={10,10,-10, -10,10};
+const  float orgbomby[]={10,-10,-10, 10, 10};
 
 // Polygon representing the ship at its actual location
 float bombx[5];
 float bomby[5];
+
+// Polygon representing the shape of an asteriod 
+const  float orgastx[]={10,10,-10, -10,10};
+const  float orgasty[]={10,-10,-10, 10, 10};
+
+#define KMAX_AST 2
+
+
+float astposx[KMAX_AST];
+float astposy[KMAX_AST];
+
+float astspeed[KMAX_AST];
+float astangle[KMAX_AST];
+float astrotspeed[KMAX_AST];
+
+bool actast[KMAX_AST];
+
+float astsize[KMAX_AST];
+
+void new_ast()
+{
+  for (uint8_t i = 0; i < KMAX_AST; i++) {
+    if (!actast[i])  {
+      astposx[i] = random(1000, 3000);
+      astposy[i] = random(1000, 3000);
+      astspeed[i] = random(5,10);
+      astangle[i]= random(0,360);
+      astrotspeed[i] = random(1, 10)/10.0;
+      astsize[i]= 2.0;
+      actast[i] = true;
+      break;
+    }
+  }
+}
+
+void draw_ast()
+{
+  float astx[8];
+  float asty[8];
+  for (uint8_t i = 0; i< KMAX_AST; i++) {
+    if ( actast[i] ) {
+      rotate (orgastx, orgasty, astx, asty, astangle[i], 8);
+      for (uint8_t j=0; j<4; j++)
+        vector_2(astx[j]*astsize[i]+astposx[i], asty[j]*astsize[i]+astposy[i], astx[j+1]*astsize[i]+astposx[i], asty[j+1]*astsize[i]+astposy[i]);
+    }
+  }
+}
+
+void update_ast()
+{
+  for (uint8_t i = 0; i< KMAX_AST; i++) {
+    if (actast[i]) {
+      astposx[i] +=  astspeed[i]* cos(astangle[i]* 3.1416 / 180.0);
+      astposy[i] +=  astspeed[i]* sin(astangle[i]* 3.1416 / 180.0);
+      if ((astposx[i]<200.0) || (astposx[i]>3900.0) || (astposy[i]<200.0) || (astposy[i]>3900.0)) 
+        astspeed[i] = -astspeed[i];
+      astangle[i]+=astrotspeed[i];
+    }
+  }  
+}
+
+float ox=2048.0, oy=2048.0, bx, by;
+
+void  process_hit_tgt() {
+  for (uint8_t i=0; i< KMAX_AST; i++)
+  {
+    if (actast[i] ){
+      float d = (astposx[i]-bx)*(astposx[i]-bx)+(astposy[i]-by)*(astposy[i]-by);
+      if ( d < (30.0*astsize[i])*(30.0*astsize[i]) )
+        actast[i] =false;  
+    }
+  }
+}
+
+void process_hit_ship() {}
+
+uint8_t firecpt=0, leftcpt=0, rightcpt=0;
   
+float vx=0, vy=0, bvx, bvy;
+float  speed=0.0;
+float angle = 0.0;
+float anginc, speedinc;
 
-// Screen is [0,255]x[0,255]
-void loop(void) {
-    static uint16_t cpt=0;
-    static uint8_t firecpt=0, leftcpt=0, rightcpt=0;
-    static float ox=2048.0, oy=2048.0, bx, by;
-    static float vx=0, vy=0, bvx, bvy;
-    static float  speed=0.0;
-    static float angle = 0.0;
-    static float anginc, speedinc;
-    float nx,ny;
-    boolean angle_changed = true, speed_changed = true;
-
+bool process_accel() {
+  bool speed_changed = false;
   if (digitalRead(FIREBUT) == LOW) {
     firecpt++;
     if (firecpt == 10) { 
@@ -367,69 +442,48 @@ void loop(void) {
   else
   {
     speedinc = 0.5;
-    if (firecpt != 0) {
-      Serial.println("BOMB!");
-        bomb_state = e_bomb_init;
-    }
     firecpt=0;
   }
+  return speed_changed;
+}
 
 
- 
- if (digitalRead(LEFTBUT) == LOW) {
-    leftcpt++;
-    if (leftcpt == 10) { 
-      if ( anginc < 10.0) anginc += 1.0;
-      leftcpt=0;
-    }
-      angle -= anginc;
-      angle_changed = true;
-  }
-  else {
-    leftcpt=0;
-   
-    if (digitalRead(RIGHTBUT) == LOW) {
-      rightcpt++;
-      if (rightcpt == 10) { 
-        if ( anginc < 10) anginc += 1;
-        rightcpt=0;
+bool process_turn() {
+  bool angle_changed = false;
+  if ((digitalRead(LEFTBUT) == LOW) && (digitalRead(RIGHTBUT) == LOW))
+    bomb_state = e_bomb_init;
+  else   {
+   if (digitalRead(LEFTBUT) == LOW) {
+      leftcpt++;
+      if (leftcpt == 10) { 
+        if ( anginc < 10.0) anginc += 1.0;
+        leftcpt=0;
       }
-        angle += anginc;
+        angle -= anginc;
         angle_changed = true;
-
     }
     else {
-      rightcpt=0;
-      anginc = 1;
+      leftcpt=0;
+      if (digitalRead(RIGHTBUT) == LOW) {
+          rightcpt++;
+          if (rightcpt == 10) { 
+            if ( anginc < 10) anginc += 1;
+            rightcpt=0;
+          }
+            angle += anginc;
+            angle_changed = true;
+        }
+        else {
+          rightcpt=0;
+          anginc = 1.0;
+        }
     }
   }
+  return angle_changed;
+}
 
 
-
-   if ( angle_changed) {
-    rotate (orgshipx, orgshipy, shipx, shipy, angle, 5);
-   }
-   
-  // Draw ship
-  for (int i=0; i<4; i++)
-    vector_2(shipx[i]+ox, shipy[i]+oy, shipx[i+1]+ox, shipy[i+1]+oy);
-
-  if ( angle_changed || speed_changed ) {
-    vx = speed* cos(angle* 3.1416 / 180.0);
-    vy = -speed* sin(angle* 3.1416 / 180.0);
-  }
-    nx = ox+vx;
-    ny = oy+vy;
-
-    if ((nx<200.0) || (nx>3900.0) || (ny<200.0) || (ny>3900.0)) speed= 0.0;
-      
-   else {
-    ox = nx;
-    oy = ny;
-    }
-
-
-  
+  void process_bomb() {
   switch (bomb_state) {
     case e_bomb_off:
       break;
@@ -457,14 +511,74 @@ void loop(void) {
     default:
       break;
   }
+ }
 
-    
+void create_ast(uint16_t cpt) { 
+  if ((cpt & 0x2F) == 0) {
+      if (random(0,100) > 90) new_ast();
+  }   
+}
+
+
+// Screen is [0,255]x[0,255]
+void loop(void) {
+    static uint16_t cpt=0;
+
+    float nx,ny;
+    boolean angle_changed = true, speed_changed = true;
+
+  switch (game_state) {
+    case e_waiting :
+        if ((digitalRead(FIREBUT) == LOW) || (digitalRead(LEFTBUT) == LOW) || (digitalRead(RIGHTBUT) == LOW))
+          game_state = e_playing;
+      break;
+    case e_playing:
+      speed_changed = process_accel();
+      angle_changed = process_turn();
+      process_bomb();
+      create_ast(cpt);
+      break;
+    default:
+      break;
+  }
+
+   if ( angle_changed) {
+    rotate (orgshipx, orgshipy, shipx, shipy, angle, 4);
+   }
+   
+  // Draw ship
+  for (int i=0; i<3; i++)
+    vector_2(shipx[i]+ox, shipy[i]+oy, shipx[i+1]+ox, shipy[i+1]+oy);
+
+  if ( angle_changed || speed_changed ) {
+    vx = speed* cos(angle* 3.1416 / 180.0);
+    vy = -speed* sin(angle* 3.1416 / 180.0);
+  }
+    nx = ox+vx;
+    ny = oy+vy;
+
+    if ((nx<200.0) || (nx>3900.0) || (ny<200.0) || (ny>3900.0)) speed= 0.0;
+      
+   else {
+    ox = nx;
+    oy = ny;
+    }
+
+
+
+
+ draw_ast();
+ update_ast();
+
+ process_hit_tgt();
+process_hit_ship(),
+ 
     cpt++;
     if ((cpt & 0x1F) == 0) {
-      speed *=0.75;
+        speed *=0.75;
         speed_changed = true;
       }
-  
+
  }
 
 
